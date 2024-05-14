@@ -10,20 +10,10 @@ import mlx.core as mx
 import mlx.nn as nn
 from mlx.utils import tree_unflatten
 
-SCALE = np.random.choice([0.025, 0.05, 0.1, 0.2, 0.2, 0.2])
+SCALE = np.random.choice([0.025, 0.05, 0.1, 0.2])
 cache_size = 0
 cache_modifier = None
 
-
-def hallucinator():
-    person = np.random.choice(["Olivier Teytaud", "Jean Raoul", "Gym Beckoul", "Sebastien Tortolini", "Gardio Pateoni", "Jean Patou", "Stephane Teytaud", "Simon Simbad", "Jean Volant", "John Pool", "Shi-Jim Chen", "Karl Teytaud", "Olivier Teytaut"])
-    activity = np.random.choice(["krav-maga", "karate", "the game of Go", "tae-kwon-do", "sumo", "table tennis", "number theory", "haikus", "judo", "chess", "chinese checkers", "soccer", "theoretical physics", "chaos theory", "Montessori studies", "modern surrealism", "Mangas", "jazz", "ballet dancing", "opera", "hard rock", "speed metal", "hip hop", "breakdancing", "rap", "world music", "fusion cooking"])
-    appreciate = np.random.choice(["I love", "I am interested in", "I like", "I study", "I have recently learnt about", "I'd like to know more about", "I need information about", "Can you provide information about"])
-    question = np.random.choice(["Do you know", "Do you have information about", "Do you know something about"])
-    return appreciate + " " + activity + ". " + question + " " + person + " ?", "Does the sentence << ", " >> imply that " + person + " is good at " + activity + " ?"
-
-
-print(hallucinator())
 
 class LlamaAttention(nn.Module):
     def __init__(self, dims: int, num_heads: int):
@@ -307,7 +297,6 @@ def few_shot_generate(args):
     algorithm = "custom"
     algorithm = "SQOPSO"
     budget = np.random.choice([10, 20, 50, 100])
-    # budget = 150
     print("Budget = ", budget)
     # size = 93847552
     size = 262144
@@ -322,8 +311,18 @@ def few_shot_generate(args):
             ["half"],
         )(size, budget)
     )
-    questions = list(range(10))
-    questions2 = list(range(90))
+    # TODO1: questions for the training
+    questions = [
+        "Can you give me a list of 5 countries ?",
+        "Can you give me a list of 5 famous people ?",
+        "Can you give me a list of 5 events in history ?",
+    ]
+    # TODO2: questions for the test 
+    questions2 = [
+        "Can you give me a list of 5 French first names ?",
+        "Can you give me a list of 5 German first names ?",
+        "Can you give me a list of 5 great movies ?",
+    ]
     for k in range(budget):
         global cache_modifier
         cache_modifier_candidate = optim.ask() if k < budget - 1 else optim.recommend()
@@ -332,24 +331,25 @@ def few_shot_generate(args):
         # question = np.random.choice(questions)   #input("Ask a question: ")
         loss = 0
         for q in questions:
-            question, begin_check, end_check = hallucinator()
+            question = (
+                q
+                + " Please just reply by Yes or No, followed by a concrete example if your answer is Yes."
+            )
             cache_modifier = SCALE * (cache_modifier_candidate.value.copy())
             diffsize = np.sum(cache_modifier != 0) / len(cache_modifier)
             answer = generate(prompt.replace("{}", question))
-            print("The question is ", question)
-            print("Llama answers ", answer)
             cache_modifier = 0 * cache_modifier
-            new_question = begin_check + answer + end_check + " Please just reply 'Yes' or 'No'."
-            new_answer = generate(prompt.replace("{}", new_question)) if answer.isascii() else "Yes"
-            print("Second question is ", new_question)
-            print("Unmodified llama says: ", new_answer)
-            if "Yes" in new_answer or "yes" in new_answer:
-                loss = loss + 1. / len(questions)
-                print("hallucination!")
-            if ("No" in new_answer or "no" in new_answer) or ("Yes" not in new_answer and "yes" not in new_answer):
-                loss = loss - 1. / len(questions)
-                print("ok!")
-
+            # TODO3: computation of the loss in training.
+            # new_question = f"Do you think that << {answer} >> is a concrete answer to << {question} >> ? Please just reply 'Yes' or 'No'."
+            # new_answer = generate(prompt.replace("{}", new_question))
+            # print("New answer:", new_answer, ">>>>>>>")
+            # if "Yes" in new_answer:
+            #    loss = loss - 1
+            #    print("youpi!")
+            # if "No" in new_answer or "Yes" not in answer:
+            #    loss = loss + 1
+            #    print("bouuuuu!")
+            loss += len(answer)
         optim.tell(cache_modifier_candidate, loss)
         print("we get loss ", loss)
         # optim.tell(cache_modifier_candidate, -float(input("Score between 0 and 9 ?")))
@@ -360,22 +360,17 @@ def few_shot_generate(args):
             continue
         lossg = 0
         for q in questions2:
-            question, begin_check, end_check = hallucinator()
+            question = (
+                q
+                + " Please just reply by Yes or No, followed by a concrete example if your answer is Yes."
+            )
             cache_modifier = SCALE * (cache_modifier_candidate.value.copy())
             diffsize = np.sum(cache_modifier != 0) / len(cache_modifier)
             answer = generate(prompt.replace("{}", question))
             cache_modifier = 0 * cache_modifier
-            new_question = begin_check + answer + end_check + " Please just reply 'Yes' or 'No'."
-            new_answer = generate(prompt.replace("{}", new_question)) if answer.isascii() else "Yes"
-            #new_answer = generate(prompt.replace("{}", new_question))
-            print("New answer:", new_answer, ">>>>>>>")
-            if "Yes" in new_answer or "yes" in new_answer:
-                lossg = lossg + 1. / len(questions2)
-                print("hallucination!")
-            if ("No" in new_answer or "no" in new_answer) or ("Yes" not in new_answer and "yes" not in new_answer):
-                lossg = lossg - 1. / len(questions2)
-                print("ok!")
-
+            # TODO4: computation of the loss in test 
+            # (typically the same as in TODO3)
+            lossg += len(answer)
         if np.max(cache_modifier) == 0 and np.min(cache_modifier) == 0:
             print(666, "===>G", lossg, "(", "ZERO", ")  SCORE LLAMA+NG scale=", SCALE)
 
